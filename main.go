@@ -5,9 +5,9 @@ import (
 	"os"
 	"os/exec"
 
-	"dev-router/internal/config"
-	"dev-router/internal/generator"
-	"dev-router/internal/scanner"
+	"github.com/mikiobraun/dev-router/internal/config"
+	"github.com/mikiobraun/dev-router/internal/generator"
+	"github.com/mikiobraun/dev-router/internal/scanner"
 )
 
 func main() {

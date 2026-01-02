@@ -1,4 +1,4 @@
-module dev-router
+module github.com/mikiobraun/dev-router
 
 go 1.25.5
 

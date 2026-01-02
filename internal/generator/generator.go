@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"dev-router/internal/config"
-	"dev-router/internal/scanner"
+	"github.com/mikiobraun/dev-router/internal/config"
+	"github.com/mikiobraun/dev-router/internal/scanner"
 )
 
 func Generate(cfg *config.Config, projects []scanner.Project) string {
