@@ -46,11 +46,21 @@ Optional fields:
 ## Setup
 
 1. **Wildcard DNS**: Point `*.dev.yourdomain.com` to your dev server
-2. **Wildcard cert**: Generate with `mkcert "*.dev.yourdomain.com"`
+
+2. **Wildcard cert**: Generate with mkcert and install for Caddy:
+   ```bash
+   mkcert "*.dev.yourdomain.com"
+   sudo mkdir -p /etc/caddy/certs
+   sudo cp _wildcard.dev.yourdomain.com*.pem /etc/caddy/certs/
+   sudo chown caddy:caddy /etc/caddy/certs/*
+   sudo chmod 600 /etc/caddy/certs/*-key.pem
+   ```
+
 3. **Caddy import**: Add to `/etc/caddy/Caddyfile`:
    ```
    import /home/you/.config/caddy/Caddyfile.dev
    ```
+
 4. **Run**: `dev-router generate --reload`
 
 ## License
