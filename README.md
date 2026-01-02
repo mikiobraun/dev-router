@@ -8,6 +8,8 @@ Automatic subdomain routing for local dev services.
 
 Scans your projects directory for Git repos with a `dev.yaml` config, then generates a Caddy reverse proxy configuration mapping `{project}.dev.{domain}` to `localhost:{port}`.
 
+Creates dev certificates with mkcert. Works great with tailscale or other VPN solutions.
+
 ## Installation
 
 ```bash
