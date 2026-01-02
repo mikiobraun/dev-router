@@ -1,2 +1,5 @@
 # Binary
 dev-router
+
+# Claude Code local settings
+.claude/
