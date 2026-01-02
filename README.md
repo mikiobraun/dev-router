@@ -4,6 +4,8 @@
 [![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 [![Go Report Card](https://goreportcard.com/badge/github.com/mikiobraun/dev-router)](https://goreportcard.com/report/github.com/mikiobraun/dev-router)
 
+Tired of remembering on which port your project's dev server lives?
+
 Automatic subdomain routing for local dev services.
 
 Scans your projects directory for Git repos with a `dev.yaml` config, then generates a Caddy reverse proxy configuration mapping `{project}.dev.{domain}` to `localhost:{port}`.
