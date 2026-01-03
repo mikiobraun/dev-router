@@ -41,15 +41,25 @@ caddyfile_path: ~/.config/caddy/Caddyfile.dev
 
 ### Project config: `dev.yaml`
 
-Add to any Git repo root:
+Add to any Git repo root. Single service:
 
 ```yaml
 port: 3000
+name: myapp    # optional, defaults to directory name
+enabled: true  # optional, defaults to true
 ```
 
-Optional fields:
-- `name`: override subdomain (default: directory name)
-- `enabled`: set to `false` to skip
+Multiple services (e.g., frontend + API):
+
+```yaml
+services:
+  - name: myapp-api
+    port: 3000
+  - name: myapp-frontend
+    port: 5173
+```
+
+Each service gets its own subdomain (`myapp-api.dev.yourdomain.com`, etc.).
 
 ## Setup
 

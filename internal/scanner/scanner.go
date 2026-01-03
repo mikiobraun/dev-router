@@ -14,10 +14,19 @@ type Project struct {
 	Enabled bool
 }
 
+type serviceConfig struct {
+	Name    string `yaml:"name"`
+	Port    int    `yaml:"port"`
+	Enabled *bool  `yaml:"enabled"`
+}
+
 type devConfig struct {
+	// Single service format
 	Port    int    `yaml:"port"`
 	Name    string `yaml:"name"`
 	Enabled *bool  `yaml:"enabled"`
+	// Multi-service format
+	Services []serviceConfig `yaml:"services"`
 }
 
 func Scan(projectsDir string) ([]Project, error) {
@@ -53,13 +62,29 @@ func Scan(projectsDir string) ([]Project, error) {
 			continue // Invalid yaml, skip
 		}
 
-		// Determine project name
+		// Multi-service format
+		if len(devCfg.Services) > 0 {
+			for _, svc := range devCfg.Services {
+				enabled := true
+				if svc.Enabled != nil {
+					enabled = *svc.Enabled
+				}
+				projects = append(projects, Project{
+					Name:    svc.Name,
+					Port:    svc.Port,
+					Path:    dirPath,
+					Enabled: enabled,
+				})
+			}
+			continue
+		}
+
+		// Single service format
 		name := entry.Name()
 		if devCfg.Name != "" {
 			name = devCfg.Name
 		}
 
-		// Determine enabled status (default true)
 		enabled := true
 		if devCfg.Enabled != nil {
 			enabled = *devCfg.Enabled
