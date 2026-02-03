@@ -65,13 +65,15 @@ func cmdGenerate() {
 
 	cfg := loadConfig()
 
-	projects, err := scanner.Scan(cfg.ProjectsDir)
+	result, err := scanner.Scan(cfg.ProjectsDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error scanning projects: %v\n", err)
 		os.Exit(1)
 	}
 
-	content := generator.Generate(cfg, projects)
+	printWarnings(result.Warnings)
+
+	content := generator.Generate(cfg, result.Projects)
 
 	if err := generator.Write(cfg, content); err != nil {
 		fmt.Fprintf(os.Stderr, "Error writing Caddyfile: %v\n", err)
@@ -80,7 +82,7 @@ func cmdGenerate() {
 
 	// Count enabled projects
 	enabled := 0
-	for _, p := range projects {
+	for _, p := range result.Projects {
 		if p.Enabled {
 			enabled++
 		}
@@ -103,13 +105,15 @@ func cmdGenerate() {
 func cmdList() {
 	cfg := loadConfig()
 
-	projects, err := scanner.Scan(cfg.ProjectsDir)
+	result, err := scanner.Scan(cfg.ProjectsDir)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error scanning projects: %v\n", err)
 		os.Exit(1)
 	}
 
-	if len(projects) == 0 {
+	printWarnings(result.Warnings)
+
+	if len(result.Projects) == 0 {
 		fmt.Println("No services found")
 		return
 	}
@@ -117,12 +121,18 @@ func cmdList() {
 	fmt.Printf("%-20s %-30s %s\n", "NAME", "URL", "PORT")
 	fmt.Printf("%-20s %-30s %s\n", "----", "---", "----")
 
-	for _, p := range projects {
+	for _, p := range result.Projects {
 		status := ""
 		if !p.Enabled {
 			status = " (disabled)"
 		}
 		url := fmt.Sprintf("https://%s.%s", p.Name, cfg.Domain)
 		fmt.Printf("%-20s %-30s %d%s\n", p.Name, url, p.Port, status)
+	}
+}
+
+func printWarnings(warnings []string) {
+	for _, w := range warnings {
+		fmt.Fprintf(os.Stderr, "Warning: %s\n", w)
 	}
 }

@@ -1,6 +1,7 @@
 package scanner
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -12,6 +13,11 @@ type Project struct {
 	Port    int
 	Path    string
 	Enabled bool
+}
+
+type ScanResult struct {
+	Projects []Project
+	Warnings []string
 }
 
 type serviceConfig struct {
@@ -29,8 +35,8 @@ type devConfig struct {
 	Services []serviceConfig `yaml:"services"`
 }
 
-func Scan(projectsDir string) ([]Project, error) {
-	var projects []Project
+func Scan(projectsDir string) (*ScanResult, error) {
+	result := &ScanResult{}
 
 	entries, err := os.ReadDir(projectsDir)
 	if err != nil {
@@ -59,7 +65,9 @@ func Scan(projectsDir string) ([]Project, error) {
 
 		var devCfg devConfig
 		if err := yaml.Unmarshal(data, &devCfg); err != nil {
-			continue // Invalid yaml, skip
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("%s: malformed YAML: %v", entry.Name(), err))
+			continue
 		}
 
 		// Multi-service format
@@ -69,7 +77,7 @@ func Scan(projectsDir string) ([]Project, error) {
 				if svc.Enabled != nil {
 					enabled = *svc.Enabled
 				}
-				projects = append(projects, Project{
+				result.Projects = append(result.Projects, Project{
 					Name:    svc.Name,
 					Port:    svc.Port,
 					Path:    dirPath,
@@ -90,7 +98,7 @@ func Scan(projectsDir string) ([]Project, error) {
 			enabled = *devCfg.Enabled
 		}
 
-		projects = append(projects, Project{
+		result.Projects = append(result.Projects, Project{
 			Name:    name,
 			Port:    devCfg.Port,
 			Path:    dirPath,
@@ -98,5 +106,19 @@ func Scan(projectsDir string) ([]Project, error) {
 		})
 	}
 
-	return projects, nil
+	// Check for duplicate ports
+	portUsers := make(map[int][]string)
+	for _, p := range result.Projects {
+		if p.Enabled {
+			portUsers[p.Port] = append(portUsers[p.Port], p.Name)
+		}
+	}
+	for port, names := range portUsers {
+		if len(names) > 1 {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("port %d used by multiple services: %v", port, names))
+		}
+	}
+
+	return result, nil
 }
