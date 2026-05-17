@@ -50,12 +50,6 @@ func Scan(projectsDir string) (*ScanResult, error) {
 
 		dirPath := filepath.Join(projectsDir, entry.Name())
 
-		// Check for .git directory
-		gitPath := filepath.Join(dirPath, ".git")
-		if _, err := os.Stat(gitPath); os.IsNotExist(err) {
-			continue
-		}
-
 		// Check for dev.yaml
 		devYamlPath := filepath.Join(dirPath, "dev.yaml")
 		data, err := os.ReadFile(devYamlPath)
