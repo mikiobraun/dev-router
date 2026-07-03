@@ -13,6 +13,10 @@ type Config struct {
 	CertPath      string `yaml:"cert_path"`
 	KeyPath       string `yaml:"key_path"`
 	CaddyfilePath string `yaml:"caddyfile_path"`
+	// AuthUpstream is the host:port of the auth service that answers
+	// forward_auth checks at its /verify endpoint, e.g. "localhost:6100".
+	// Required for services that set `auth: true` in their dev.yaml.
+	AuthUpstream string `yaml:"auth_upstream"`
 }
 
 func DefaultConfigPath() string {

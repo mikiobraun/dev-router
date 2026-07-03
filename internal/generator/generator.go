@@ -24,6 +24,18 @@ func Generate(cfg *config.Config, projects []scanner.Project) string {
 
 		sb.WriteString(fmt.Sprintf("%s {\n", subdomain))
 		sb.WriteString(fmt.Sprintf("\ttls %s %s\n", cfg.CertPath, cfg.KeyPath))
+		if p.Auth {
+			if cfg.AuthUpstream == "" {
+				// auth requested but no upstream configured — leave a visible note
+				// rather than silently serving the service unprotected.
+				sb.WriteString("\t# WARNING: auth requested but auth_upstream is unset; service is UNPROTECTED\n")
+			} else {
+				sb.WriteString(fmt.Sprintf("\tforward_auth %s {\n", cfg.AuthUpstream))
+				sb.WriteString("\t\turi /verify\n")
+				sb.WriteString("\t\tcopy_headers X-Volume-User X-Volume-Scopes\n")
+				sb.WriteString("\t}\n")
+			}
+		}
 		sb.WriteString(fmt.Sprintf("\treverse_proxy localhost:%d\n", p.Port))
 		sb.WriteString("}\n\n")
 	}

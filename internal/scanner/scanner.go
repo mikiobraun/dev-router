@@ -13,6 +13,7 @@ type Project struct {
 	Port    int
 	Path    string
 	Enabled bool
+	Auth    bool
 }
 
 type ScanResult struct {
@@ -24,6 +25,7 @@ type serviceConfig struct {
 	Name    string `yaml:"name"`
 	Port    int    `yaml:"port"`
 	Enabled *bool  `yaml:"enabled"`
+	Auth    *bool  `yaml:"auth"`
 }
 
 type devConfig struct {
@@ -31,6 +33,7 @@ type devConfig struct {
 	Port    int    `yaml:"port"`
 	Name    string `yaml:"name"`
 	Enabled *bool  `yaml:"enabled"`
+	Auth    *bool  `yaml:"auth"`
 	// Multi-service format
 	Services []serviceConfig `yaml:"services"`
 }
@@ -76,6 +79,7 @@ func Scan(projectsDir string) (*ScanResult, error) {
 					Port:    svc.Port,
 					Path:    dirPath,
 					Enabled: enabled,
+					Auth:    svc.Auth != nil && *svc.Auth,
 				})
 			}
 			continue
@@ -97,6 +101,7 @@ func Scan(projectsDir string) (*ScanResult, error) {
 			Port:    devCfg.Port,
 			Path:    dirPath,
 			Enabled: enabled,
+			Auth:    devCfg.Auth != nil && *devCfg.Auth,
 		})
 	}
 
