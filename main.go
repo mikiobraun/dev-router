@@ -118,16 +118,20 @@ func cmdList() {
 		return
 	}
 
-	fmt.Printf("%-20s %-30s %s\n", "NAME", "URL", "PORT")
-	fmt.Printf("%-20s %-30s %s\n", "----", "---", "----")
+	fmt.Printf("%-20s %-30s %-6s %-5s\n", "NAME", "URL", "PORT", "AUTH")
+	fmt.Printf("%-20s %-30s %-6s %-5s\n", "----", "---", "----", "----")
 
 	for _, p := range result.Projects {
 		status := ""
 		if !p.Enabled {
 			status = " (disabled)"
 		}
+		auth := ""
+		if p.Auth {
+			auth = "yes"
+		}
 		url := fmt.Sprintf("https://%s.%s", p.Name, cfg.Domain)
-		fmt.Printf("%-20s %-30s %d%s\n", p.Name, url, p.Port, status)
+		fmt.Printf("%-20s %-30s %-6d %-5s%s\n", p.Name, url, p.Port, auth, status)
 	}
 }
 
