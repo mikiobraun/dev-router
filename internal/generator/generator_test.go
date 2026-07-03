@@ -30,6 +30,7 @@ func TestGenerateForwardAuth(t *testing.T) {
 	// The secure service gets a forward_auth block pointing at /verify.
 	secBlock := blockFor(out, "secure.rp5.miki.one")
 	for _, want := range []string{
+		"handle /.well-known/oauth-protected-resource {",
 		"forward_auth localhost:6100 {",
 		"uri /verify",
 		"copy_headers X-Volume-User X-Volume-Scopes",
