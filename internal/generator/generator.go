@@ -47,6 +47,14 @@ func Generate(cfg *config.Config, projects []scanner.Project) string {
 			}
 			sb.WriteString(fmt.Sprintf("\treverse_proxy localhost:%d\n", p.Port))
 		}
+
+		// Catch upstream-unreachable errors (502/503) so a stopped dev server
+		// gets a readable message instead of a blank/hung response. App-level
+		// 4xx/5xx pass through untouched.
+		sb.WriteString("\thandle_errors 502 503 {\n")
+		sb.WriteString(fmt.Sprintf("\t\trespond \"%s is not running (port %d) — error {err.status_code}\" 503\n", p.Name, p.Port))
+		sb.WriteString("\t}\n")
+
 		sb.WriteString("}\n\n")
 	}
 

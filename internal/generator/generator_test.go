@@ -42,6 +42,21 @@ func TestGenerateForwardAuth(t *testing.T) {
 	}
 }
 
+func TestGenerateHandleErrors(t *testing.T) {
+	cfg := &config.Config{Domain: "rp5.miki.one", CertPath: "/c.pem", KeyPath: "/k.pem"}
+	out := Generate(cfg, []scanner.Project{{Name: "open", Port: 3000, Enabled: true}})
+
+	block := blockFor(out, "open.rp5.miki.one")
+	for _, want := range []string{
+		"handle_errors 502 503 {",
+		`respond "open is not running (port 3000) — error {err.status_code}" 503`,
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("block missing %q:\n%s", want, block)
+		}
+	}
+}
+
 func TestGenerateAuthWithoutUpstreamWarns(t *testing.T) {
 	cfg := &config.Config{Domain: "rp5.miki.one", AuthUpstream: ""}
 	out := Generate(cfg, []scanner.Project{{Name: "secure", Port: 4000, Enabled: true, Auth: true}})
