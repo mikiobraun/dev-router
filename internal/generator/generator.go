@@ -10,6 +10,15 @@ import (
 	"github.com/mikiobraun/dev-router/internal/scanner"
 )
 
+// Preflight defaults. Broad enough for the REST data plane (GET + future
+// PUT/POST/DELETE, If-Match for optimistic concurrency) and the OAuth fetches
+// (Authorization, JSON bodies).
+const (
+	corsMethods = "GET, PUT, POST, DELETE, OPTIONS"
+	corsHeaders = "Authorization, Content-Type, If-Match"
+	corsMaxAge  = "600"
+)
+
 func Generate(cfg *config.Config, projects []scanner.Project) string {
 	var sb strings.Builder
 
@@ -20,46 +29,125 @@ func Generate(cfg *config.Config, projects []scanner.Project) string {
 			continue
 		}
 
-		subdomain := fmt.Sprintf("%s.%s", p.Name, cfg.Domain)
+		// The standard, generated vhost — skipped for import-only projects
+		// (no port), which bring their own site blocks via caddy_import.
+		if p.Port > 0 {
+			subdomain := fmt.Sprintf("%s.%s", p.Name, cfg.Domain)
+			sb.WriteString(fmt.Sprintf("%s {\n", subdomain))
+			sb.WriteString(fmt.Sprintf("\ttls %s %s\n", cfg.CertPath, cfg.KeyPath))
 
-		sb.WriteString(fmt.Sprintf("%s {\n", subdomain))
-		sb.WriteString(fmt.Sprintf("\ttls %s %s\n", cfg.CertPath, cfg.KeyPath))
-
-		if p.Auth && cfg.AuthUpstream != "" {
-			// OAuth discovery must be public (not gated), and it identifies the
-			// resource by this host — route it to the auth service.
-			sb.WriteString("\thandle /.well-known/oauth-protected-resource {\n")
-			sb.WriteString(fmt.Sprintf("\t\treverse_proxy %s\n", cfg.AuthUpstream))
-			sb.WriteString("\t}\n")
-			// Everything else is gated: forward_auth validates, then we proxy.
-			sb.WriteString("\thandle {\n")
-			sb.WriteString(fmt.Sprintf("\t\tforward_auth %s {\n", cfg.AuthUpstream))
-			sb.WriteString("\t\t\turi /verify\n")
-			sb.WriteString("\t\t\tcopy_headers X-Volume-User X-Volume-Scopes\n")
-			sb.WriteString("\t\t}\n")
-			sb.WriteString(fmt.Sprintf("\t\treverse_proxy localhost:%d\n", p.Port))
-			sb.WriteString("\t}\n")
-		} else {
-			if p.Auth {
-				// auth requested but no upstream configured — leave a visible note
-				// rather than silently serving the service unprotected.
-				sb.WriteString("\t# WARNING: auth requested but auth_upstream is unset; service is UNPROTECTED\n")
+			if len(p.CORSOrigins) > 0 {
+				// Wrap the CORS preamble + routing in a route{} so ordering is
+				// explicit: the preflight is answered before forward_auth, and the
+				// deferred CORS headers land on every response — including the 401
+				// the SPA must be able to read to discover the auth server.
+				sb.WriteString("\troute {\n")
+				sb.WriteString(corsPreamble(p, "\t\t"))
+				sb.WriteString(serviceHandlers(cfg, p, "\t\t"))
+				sb.WriteString("\t}\n")
+			} else {
+				sb.WriteString(serviceHandlers(cfg, p, "\t"))
 			}
-			sb.WriteString(fmt.Sprintf("\treverse_proxy localhost:%d\n", p.Port))
+
+			// Catch upstream-unreachable errors (502/503) so a stopped dev server
+			// gets a readable message instead of a blank/hung response. App-level
+			// 4xx/5xx pass through untouched.
+			sb.WriteString("\thandle_errors 502 503 {\n")
+			sb.WriteString(fmt.Sprintf("\t\trespond \"%s is not running (port %d) — error {err.status_code}\" 503\n", p.Name, p.Port))
+			sb.WriteString("\t}\n")
+
+			sb.WriteString("}\n\n")
 		}
 
-		// Catch upstream-unreachable errors (502/503) so a stopped dev server
-		// gets a readable message instead of a blank/hung response. App-level
-		// 4xx/5xx pass through untouched.
-		sb.WriteString("\thandle_errors 502 503 {\n")
-		sb.WriteString(fmt.Sprintf("\t\trespond \"%s is not running (port %d) — error {err.status_code}\" 503\n", p.Name, p.Port))
-		sb.WriteString("\t}\n")
-
-		sb.WriteString("}\n\n")
+		// Escape hatch: pull in the project's own raw Caddy snippet verbatim.
+		// dev-router doesn't parse or validate it — the project owns its hosts,
+		// ports, and correctness. Caddy validates it at load time.
+		if p.CaddyImport != "" {
+			sb.WriteString(fmt.Sprintf("# %s: project-owned Caddy snippet (caddy_import escape hatch)\n", p.Name))
+			sb.WriteString(fmt.Sprintf("import %s\n\n", p.CaddyImport))
+		}
 	}
 
 	return sb.String()
 }
+
+// serviceHandlers emits the routing handlers for a project at the given indent:
+// the forward_auth-gated pair when auth is on (and an upstream is set), or a
+// plain reverse_proxy otherwise.
+func serviceHandlers(cfg *config.Config, p scanner.Project, ind string) string {
+	var sb strings.Builder
+
+	if p.Auth && cfg.AuthUpstream != "" {
+		// OAuth discovery must be public (not gated), and it identifies the
+		// resource by this host — route it to the auth service.
+		sb.WriteString(ind + "handle /.well-known/oauth-protected-resource {\n")
+		sb.WriteString(ind + "\treverse_proxy " + cfg.AuthUpstream + "\n")
+		sb.WriteString(ind + "}\n")
+		// Everything else is gated: forward_auth validates, then we proxy.
+		sb.WriteString(ind + "handle {\n")
+		sb.WriteString(ind + "\tforward_auth " + cfg.AuthUpstream + " {\n")
+		sb.WriteString(ind + "\t\turi /verify\n")
+		sb.WriteString(ind + "\t\tcopy_headers X-Volume-User X-Volume-Scopes\n")
+		sb.WriteString(ind + "\t}\n")
+		sb.WriteString(fmt.Sprintf(ind+"\treverse_proxy localhost:%d\n", p.Port))
+		sb.WriteString(ind + "}\n")
+		return sb.String()
+	}
+
+	if p.Auth {
+		// auth requested but no upstream configured — leave a visible note
+		// rather than silently serving the service unprotected.
+		sb.WriteString(ind + "# WARNING: auth requested but auth_upstream is unset; service is UNPROTECTED\n")
+	}
+	sb.WriteString(fmt.Sprintf(ind+"reverse_proxy localhost:%d\n", p.Port))
+	return sb.String()
+}
+
+// corsPreamble emits, at the given indent: the response CORS headers (reflecting
+// each allowlisted origin, or "*"), deferred so they apply to proxied and error
+// responses alike; and a preflight handler that answers OPTIONS with 204 before
+// any auth check runs.
+func corsPreamble(p scanner.Project, ind string) string {
+	var sb strings.Builder
+
+	writeHeaderBody := func(origin string) {
+		sb.WriteString(ind + "\tAccess-Control-Allow-Origin " + quote(origin) + "\n")
+		if len(p.CORSExpose) > 0 {
+			sb.WriteString(ind + "\tAccess-Control-Expose-Headers " + quote(strings.Join(p.CORSExpose, ", ")) + "\n")
+		}
+		sb.WriteString(ind + "\tVary Origin\n")
+		sb.WriteString(ind + "\tdefer\n")
+	}
+
+	if len(p.CORSOrigins) == 1 && p.CORSOrigins[0] == "*" {
+		sb.WriteString(ind + "header {\n")
+		writeHeaderBody("*")
+		sb.WriteString(ind + "}\n")
+	} else {
+		// Reflect only allowlisted origins, so the browser sees ACAO for its own
+		// origin and nothing for others.
+		for i, o := range p.CORSOrigins {
+			m := fmt.Sprintf("@cors_o%d", i)
+			sb.WriteString(fmt.Sprintf("%s%s header Origin %s\n", ind, m, o))
+			sb.WriteString(fmt.Sprintf("%sheader %s {\n", ind, m))
+			writeHeaderBody(o)
+			sb.WriteString(ind + "}\n")
+		}
+	}
+
+	// Preflight: answered before the gated handlers. ACAO/Expose/Vary come from
+	// the deferred header above (the Origin is present on the OPTIONS too).
+	sb.WriteString(ind + "@preflight method OPTIONS\n")
+	sb.WriteString(ind + "handle @preflight {\n")
+	sb.WriteString(ind + "\theader Access-Control-Allow-Methods " + quote(corsMethods) + "\n")
+	sb.WriteString(ind + "\theader Access-Control-Allow-Headers " + quote(corsHeaders) + "\n")
+	sb.WriteString(ind + "\theader Access-Control-Max-Age " + quote(corsMaxAge) + "\n")
+	sb.WriteString(ind + "\trespond 204\n")
+	sb.WriteString(ind + "}\n")
+	return sb.String()
+}
+
+func quote(s string) string { return "\"" + s + "\"" }
 
 func Write(cfg *config.Config, content string) error {
 	// Ensure directory exists
