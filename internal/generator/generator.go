@@ -38,13 +38,19 @@ func Generate(cfg *config.Config, projects []scanner.Project) string {
 				sb.WriteString(fmt.Sprintf("\ttls %s %s\n", cfg.CertPath, cfg.KeyPath))
 			}
 
-			if len(p.CORSOrigins) > 0 {
-				// Wrap the CORS preamble + routing in a route{} so ordering is
-				// explicit: the preflight is answered before forward_auth, and the
-				// deferred CORS headers land on every response — including the 401
-				// the SPA must be able to read to discover the auth server.
+			// CORS and rate_limit both need a route{} for explicit ordering: the
+			// CORS preflight is answered before forward_auth, its deferred headers
+			// land on every response (incl. the 401 the SPA reads to discover the
+			// auth server), and rate_limit is a plugin directive with no default
+			// order so it must live in a route.
+			if len(p.CORSOrigins) > 0 || rateLimitEnabled(p) {
 				sb.WriteString("\troute {\n")
-				sb.WriteString(corsPreamble(p, "\t\t"))
+				if len(p.CORSOrigins) > 0 {
+					sb.WriteString(corsPreamble(p, "\t\t"))
+				}
+				if rateLimitEnabled(p) {
+					sb.WriteString(rateLimitBlock(p, "\t\t"))
+				}
 				sb.WriteString(serviceHandlers(cfg, p, "\t\t"))
 				sb.WriteString("\t}\n")
 			} else {
@@ -192,6 +198,55 @@ func corsPreamble(p scanner.Project, ind string) string {
 	sb.WriteString(ind + "\trespond 204\n")
 	sb.WriteString(ind + "}\n")
 	return sb.String()
+}
+
+// rateLimitEnabled reports whether a usable rate_limit is configured (a nil or
+// incomplete one is skipped; the scanner warns about the incomplete case).
+func rateLimitEnabled(p scanner.Project) bool {
+	return p.RateLimit != nil && p.RateLimit.Events > 0 && p.RateLimit.Window != ""
+}
+
+// rateLimitBlock emits a caddy-ratelimit `rate_limit` handler at the given
+// indent, scoped to the configured paths (via a request matcher) when set, else
+// applied to every request in the route. Requires the
+// github.com/mholt/caddy-ratelimit module in Caddy, and must sit inside a
+// route{} (rate_limit has no default directive order).
+func rateLimitBlock(p scanner.Project, ind string) string {
+	rl := p.RateLimit
+	key := rl.Key
+	if key == "" {
+		key = "{remote_host}" // per client IP
+	}
+	zone := rateLimitZone(p.Name)
+
+	var sb strings.Builder
+	matcher := ""
+	if len(rl.Paths) > 0 {
+		sb.WriteString(fmt.Sprintf("%s@%s_rl path %s\n", ind, zone, strings.Join(rl.Paths, " ")))
+		matcher = " @" + zone + "_rl"
+	}
+	sb.WriteString(fmt.Sprintf("%srate_limit%s {\n", ind, matcher))
+	sb.WriteString(fmt.Sprintf("%s\tzone %s {\n", ind, zone))
+	sb.WriteString(fmt.Sprintf("%s\t\tkey %s\n", ind, key))
+	sb.WriteString(fmt.Sprintf("%s\t\tevents %d\n", ind, rl.Events))
+	sb.WriteString(fmt.Sprintf("%s\t\twindow %s\n", ind, rl.Window))
+	sb.WriteString(ind + "\t}\n")
+	sb.WriteString(ind + "}\n")
+	return sb.String()
+}
+
+// rateLimitZone derives a Caddyfile-safe zone/matcher identifier from a service
+// name (lower-cased, non-alphanumerics to '_'), so "volume-auth" → "volume_auth".
+func rateLimitZone(name string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(name) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	return b.String()
 }
 
 // hostname returns the Caddy site address for a project: the project's own

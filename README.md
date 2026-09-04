@@ -149,6 +149,48 @@ dev server, or an auth service that is not running. Note the second case: if
 discovery route. Errors produced by the application itself pass through
 untouched.
 
+## Rate limiting
+
+Any service can have a `rate_limit` block, which emits a
+[caddy-ratelimit](https://github.com/mholt/caddy-ratelimit) handler. This is most
+useful on an internet-facing auth service, to throttle credential-guessing on
+`/login` and client-registration floods on `/register`:
+
+```yaml
+name: volume-auth
+port: 6100
+domain: auth.yourdomain.com
+rate_limit:
+  paths: [/login, /register]   # optional; omit to limit the whole vhost
+  events: 20                    # allowed requests per window (required)
+  window: 1m                    # window duration (required)
+  key: "{remote_host}"          # optional; defaults to per-client IP
+```
+
+generates:
+
+```
+auth.yourdomain.com {
+	route {
+		@volume_auth_rl path /login /register
+		rate_limit @volume_auth_rl {
+			zone volume_auth {
+				key {remote_host}
+				events 20
+				window 1m
+			}
+		}
+		reverse_proxy localhost:6100
+	}
+	handle_errors 502 503 { ... }
+}
+```
+
+**Requires the `caddy-ratelimit` module compiled into Caddy** — it is not part of
+core Caddy. On Debian: `sudo caddy add-package github.com/mholt/caddy-ratelimit`
+then restart Caddy (or use `xcaddy` / a custom build). A `rate_limit` missing
+`events` or `window` is skipped with a warning rather than emitted.
+
 ## Setup
 
 1. **Wildcard DNS**: Point `*.dev.yourdomain.com` to your dev server

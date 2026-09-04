@@ -42,6 +42,20 @@ type Project struct {
 	// the hostnames, ports, and correctness. A project with a CaddyImport and no
 	// Port gets only the import, no default vhost.
 	CaddyImport string
+	// RateLimit, when set, emits a caddy-ratelimit `rate_limit` handler for this
+	// vhost (requires the github.com/mholt/caddy-ratelimit module compiled into
+	// Caddy). Scoped to the given paths if any, else the whole vhost; keyed per
+	// client IP unless Key overrides. The vhost is wrapped in a route{} so the
+	// plugin directive has a defined order.
+	RateLimit *RateLimit
+}
+
+// RateLimit is the per-service rate_limit declaration (caddy-ratelimit module).
+type RateLimit struct {
+	Paths  []string // request paths to limit; empty = the whole vhost
+	Events int      // allowed events per window
+	Window string   // window duration (Caddy duration string, e.g. "1m")
+	Key    string   // rate-limit key; empty = "{remote_host}" (per client IP)
 }
 
 type ScanResult struct {
@@ -55,31 +69,41 @@ type corsConfig struct {
 	Expose  []string `yaml:"expose"`
 }
 
+// rateLimitConfig is the per-service rate_limit declaration in dev.yaml.
+type rateLimitConfig struct {
+	Paths  []string `yaml:"paths"`
+	Events int      `yaml:"events"`
+	Window string   `yaml:"window"`
+	Key    string   `yaml:"key"`
+}
+
 type serviceConfig struct {
-	Name        string      `yaml:"name"`
-	Port        int         `yaml:"port"`
-	Host        string      `yaml:"host"`
-	Domain      string      `yaml:"domain"`
-	Enabled     *bool       `yaml:"enabled"`
-	Auth        *bool       `yaml:"auth"`
-	Token       *bool       `yaml:"token"`
-	TokenEnv    string      `yaml:"token_env"`
-	CORS        *corsConfig `yaml:"cors"`
-	CaddyImport string      `yaml:"caddy_import"`
+	Name        string           `yaml:"name"`
+	Port        int              `yaml:"port"`
+	Host        string           `yaml:"host"`
+	Domain      string           `yaml:"domain"`
+	Enabled     *bool            `yaml:"enabled"`
+	Auth        *bool            `yaml:"auth"`
+	Token       *bool            `yaml:"token"`
+	TokenEnv    string           `yaml:"token_env"`
+	CORS        *corsConfig      `yaml:"cors"`
+	CaddyImport string           `yaml:"caddy_import"`
+	RateLimit   *rateLimitConfig `yaml:"rate_limit"`
 }
 
 type devConfig struct {
 	// Single service format
-	Port        int         `yaml:"port"`
-	Name        string      `yaml:"name"`
-	Host        string      `yaml:"host"`
-	Domain      string      `yaml:"domain"`
-	Enabled     *bool       `yaml:"enabled"`
-	Auth        *bool       `yaml:"auth"`
-	Token       *bool       `yaml:"token"`
-	TokenEnv    string      `yaml:"token_env"`
-	CORS        *corsConfig `yaml:"cors"`
-	CaddyImport string      `yaml:"caddy_import"`
+	Port        int              `yaml:"port"`
+	Name        string           `yaml:"name"`
+	Host        string           `yaml:"host"`
+	Domain      string           `yaml:"domain"`
+	Enabled     *bool            `yaml:"enabled"`
+	Auth        *bool            `yaml:"auth"`
+	Token       *bool            `yaml:"token"`
+	TokenEnv    string           `yaml:"token_env"`
+	CORS        *corsConfig      `yaml:"cors"`
+	CaddyImport string           `yaml:"caddy_import"`
+	RateLimit   *rateLimitConfig `yaml:"rate_limit"`
 	// Multi-service format
 	Services []serviceConfig `yaml:"services"`
 }
@@ -102,6 +126,14 @@ func corsFields(c *corsConfig) (origins, expose []string) {
 		return nil, nil
 	}
 	return c.Origins, c.Expose
+}
+
+// rateLimit safely converts a possibly-nil rateLimitConfig.
+func rateLimit(c *rateLimitConfig) *RateLimit {
+	if c == nil {
+		return nil
+	}
+	return &RateLimit{Paths: c.Paths, Events: c.Events, Window: c.Window, Key: c.Key}
 }
 
 func Scan(projectsDir, configFile string) (*ScanResult, error) {
@@ -153,6 +185,7 @@ func Scan(projectsDir, configFile string) (*ScanResult, error) {
 					CORSOrigins: origins,
 					CORSExpose:  expose,
 					CaddyImport: resolveImport(dirPath, svc.CaddyImport),
+					RateLimit:   rateLimit(svc.RateLimit),
 				})
 			}
 			continue
@@ -183,6 +216,7 @@ func Scan(projectsDir, configFile string) (*ScanResult, error) {
 			CORSOrigins: origins,
 			CORSExpose:  expose,
 			CaddyImport: resolveImport(dirPath, devCfg.CaddyImport),
+			RateLimit:   rateLimit(devCfg.RateLimit),
 		})
 	}
 
@@ -205,6 +239,15 @@ func Scan(projectsDir, configFile string) (*ScanResult, error) {
 		if p.Enabled && p.Port == 0 && p.CaddyImport == "" {
 			result.Warnings = append(result.Warnings,
 				fmt.Sprintf("%s: no port and no caddy_import; nothing generated", p.Name))
+		}
+	}
+
+	// A rate_limit missing events/window can't be emitted; flag it rather than
+	// silently dropping a security control.
+	for _, p := range result.Projects {
+		if p.Enabled && p.RateLimit != nil && (p.RateLimit.Events <= 0 || p.RateLimit.Window == "") {
+			result.Warnings = append(result.Warnings,
+				fmt.Sprintf("%s: rate_limit needs events>0 and window; ignoring", p.Name))
 		}
 	}
 

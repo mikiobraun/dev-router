@@ -246,6 +246,63 @@ func TestGenerateNoTLSWithoutCerts(t *testing.T) {
 	}
 }
 
+// A rate_limit emits a route-wrapped, path-scoped caddy-ratelimit handler ahead
+// of the backend proxy.
+func TestGenerateRateLimit(t *testing.T) {
+	cfg := &config.Config{Domain: "miki.one"}
+	block := blockFor(Generate(cfg, []scanner.Project{{
+		Name: "volume-auth", Port: 6100, Domain: "auth.miki.one", Enabled: true,
+		RateLimit: &scanner.RateLimit{Paths: []string{"/login", "/register"}, Events: 20, Window: "1m"},
+	}}), "auth.miki.one")
+
+	for _, want := range []string{
+		"route {",
+		"@volume_auth_rl path /login /register",
+		"rate_limit @volume_auth_rl {",
+		"zone volume_auth {",
+		"key {remote_host}",
+		"events 20",
+		"window 1m",
+		"reverse_proxy localhost:6100",
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("rate_limit block missing %q:\n%s", want, block)
+		}
+	}
+	// The limiter matcher must precede the backend proxy.
+	if strings.Index(block, "rate_limit") > strings.Index(block, "reverse_proxy") {
+		t.Errorf("rate_limit must precede reverse_proxy:\n%s", block)
+	}
+}
+
+// Without paths, the limiter applies to the whole vhost (no matcher token).
+func TestGenerateRateLimitNoPaths(t *testing.T) {
+	cfg := &config.Config{Domain: "miki.one"}
+	block := blockFor(Generate(cfg, []scanner.Project{{
+		Name: "api", Port: 8000, Enabled: true,
+		RateLimit: &scanner.RateLimit{Events: 100, Window: "1m", Key: "{remote_host}"},
+	}}), "api.miki.one")
+	if !strings.Contains(block, "rate_limit {") {
+		t.Errorf("expected an un-matched rate_limit:\n%s", block)
+	}
+	if strings.Contains(block, "@api_rl") {
+		t.Errorf("no paths → no matcher token:\n%s", block)
+	}
+}
+
+// An incomplete rate_limit (missing events/window) emits nothing — no route, no
+// handler. (The scanner warns about this separately.)
+func TestGenerateRateLimitIncompleteSkipped(t *testing.T) {
+	cfg := &config.Config{Domain: "miki.one"}
+	block := blockFor(Generate(cfg, []scanner.Project{{
+		Name: "api", Port: 8000, Enabled: true,
+		RateLimit: &scanner.RateLimit{Paths: []string{"/login"}}, // no events/window
+	}}), "api.miki.one")
+	if strings.Contains(block, "rate_limit") || strings.Contains(block, "route {") {
+		t.Errorf("incomplete rate_limit should emit nothing:\n%s", block)
+	}
+}
+
 // blockFor returns the Caddy site block starting at the given host header.
 func blockFor(caddyfile, host string) string {
 	i := strings.Index(caddyfile, host+" {")
