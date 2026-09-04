@@ -13,6 +13,9 @@ type Config struct {
 	CertPath      string `yaml:"cert_path"`
 	KeyPath       string `yaml:"key_path"`
 	CaddyfilePath string `yaml:"caddyfile_path"`
+	// ConfigFile is the per-project config filename to scan for (default:
+	// "dev.yaml"). Set to "prod.yaml" on production so dev configs don't bleed.
+	ConfigFile string `yaml:"config_file"`
 	// AuthUpstream is the host:port of the auth service that answers
 	// forward_auth checks at its /verify endpoint, e.g. "localhost:6100".
 	// Required for services that set `auth: true` in their dev.yaml.
@@ -33,6 +36,10 @@ func Load(path string) (*Config, error) {
 	var cfg Config
 	if err := yaml.Unmarshal(data, &cfg); err != nil {
 		return nil, err
+	}
+
+	if cfg.ConfigFile == "" {
+		cfg.ConfigFile = "dev.yaml"
 	}
 
 	// Expand ~ in paths

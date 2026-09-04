@@ -101,7 +101,7 @@ func corsFields(c *corsConfig) (origins, expose []string) {
 	return c.Origins, c.Expose
 }
 
-func Scan(projectsDir string) (*ScanResult, error) {
+func Scan(projectsDir, configFile string) (*ScanResult, error) {
 	result := &ScanResult{}
 
 	entries, err := os.ReadDir(projectsDir)
@@ -116,11 +116,10 @@ func Scan(projectsDir string) (*ScanResult, error) {
 
 		dirPath := filepath.Join(projectsDir, entry.Name())
 
-		// Check for dev.yaml
-		devYamlPath := filepath.Join(dirPath, "dev.yaml")
-		data, err := os.ReadFile(devYamlPath)
+		cfgPath := filepath.Join(dirPath, configFile)
+		data, err := os.ReadFile(cfgPath)
 		if err != nil {
-			continue // No dev.yaml, skip
+			continue // No config file, skip
 		}
 
 		var devCfg devConfig

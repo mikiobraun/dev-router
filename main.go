@@ -65,7 +65,7 @@ func cmdGenerate() {
 
 	cfg := loadConfig()
 
-	result, err := scanner.Scan(cfg.ProjectsDir)
+	result, err := scanner.Scan(cfg.ProjectsDir, cfg.ConfigFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error scanning projects: %v\n", err)
 		os.Exit(1)
@@ -105,7 +105,7 @@ func cmdGenerate() {
 func cmdList() {
 	cfg := loadConfig()
 
-	result, err := scanner.Scan(cfg.ProjectsDir)
+	result, err := scanner.Scan(cfg.ProjectsDir, cfg.ConfigFile)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "Error scanning projects: %v\n", err)
 		os.Exit(1)
