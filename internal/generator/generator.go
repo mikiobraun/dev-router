@@ -55,7 +55,7 @@ func Generate(cfg *config.Config, projects []scanner.Project) string {
 			// gets a readable message instead of a blank/hung response. App-level
 			// 4xx/5xx pass through untouched.
 			sb.WriteString("\thandle_errors 502 503 {\n")
-			sb.WriteString(fmt.Sprintf("\t\trespond \"%s is not running (port %d) — error {err.status_code}\" 503\n", p.Name, p.Port))
+			sb.WriteString(fmt.Sprintf("\t\trespond \"%s is not running (%s) — error {err.status_code}\" 503\n", p.Name, upstream(p)))
 			sb.WriteString("\t}\n")
 
 			sb.WriteString("}\n\n")
@@ -110,8 +110,17 @@ func serviceHandlers(cfg *config.Config, p scanner.Project, ind string) string {
 // referenced from Caddy's environment ({env.<NAME>}) and never embedded here;
 // it replaces the client's Authorization (already consumed by forward_auth) so
 // the backend sees only the gateway token.
+// upstream returns the host:port for a project's reverse_proxy target.
+func upstream(p scanner.Project) string {
+	host := p.Host
+	if host == "" {
+		host = "localhost"
+	}
+	return fmt.Sprintf("%s:%d", host, p.Port)
+}
+
 func backendProxy(p scanner.Project, ind string) string {
-	line := fmt.Sprintf("%sreverse_proxy localhost:%d", ind, p.Port)
+	line := fmt.Sprintf("%sreverse_proxy %s", ind, upstream(p))
 	if !p.Token {
 		return line + "\n"
 	}

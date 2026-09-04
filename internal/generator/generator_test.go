@@ -49,7 +49,7 @@ func TestGenerateHandleErrors(t *testing.T) {
 	block := blockFor(out, "open.rp5.miki.one")
 	for _, want := range []string{
 		"handle_errors 502 503 {",
-		`respond "open is not running (port 3000) — error {err.status_code}" 503`,
+		`respond "open is not running (localhost:3000) — error {err.status_code}" 503`,
 	} {
 		if !strings.Contains(block, want) {
 			t.Errorf("block missing %q:\n%s", want, block)

@@ -11,6 +11,7 @@ import (
 type Project struct {
 	Name    string
 	Port    int
+	Host    string // upstream host (default "localhost")
 	Path    string
 	Enabled bool
 	Auth    bool
@@ -57,6 +58,7 @@ type corsConfig struct {
 type serviceConfig struct {
 	Name        string      `yaml:"name"`
 	Port        int         `yaml:"port"`
+	Host        string      `yaml:"host"`
 	Domain      string      `yaml:"domain"`
 	Enabled     *bool       `yaml:"enabled"`
 	Auth        *bool       `yaml:"auth"`
@@ -70,6 +72,7 @@ type devConfig struct {
 	// Single service format
 	Port        int         `yaml:"port"`
 	Name        string      `yaml:"name"`
+	Host        string      `yaml:"host"`
 	Domain      string      `yaml:"domain"`
 	Enabled     *bool       `yaml:"enabled"`
 	Auth        *bool       `yaml:"auth"`
@@ -140,6 +143,7 @@ func Scan(projectsDir, configFile string) (*ScanResult, error) {
 				result.Projects = append(result.Projects, Project{
 					Name:        svc.Name,
 					Port:        svc.Port,
+					Host:        svc.Host,
 					Domain:      svc.Domain,
 					Path:        dirPath,
 					Enabled:     enabled,
@@ -169,6 +173,7 @@ func Scan(projectsDir, configFile string) (*ScanResult, error) {
 		result.Projects = append(result.Projects, Project{
 			Name:        name,
 			Port:        devCfg.Port,
+			Host:        devCfg.Host,
 			Domain:      devCfg.Domain,
 			Path:        dirPath,
 			Enabled:     enabled,
