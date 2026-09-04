@@ -160,6 +160,92 @@ func TestGenerateCaddyImport(t *testing.T) {
 	}
 }
 
+// token injects a Caddy-supplied shared bearer via an {env.<NAME>_TOKEN}
+// reference (never the literal), on the gated backend reverse_proxy.
+func TestGenerateToken(t *testing.T) {
+	cfg := &config.Config{
+		Domain: "rp5.miki.one", CertPath: "/c.pem", KeyPath: "/k.pem",
+		AuthUpstream: "localhost:6100",
+	}
+	block := blockFor(Generate(cfg, []scanner.Project{
+		{Name: "kbmcp", Port: 8070, Enabled: true, Auth: true, Token: true},
+	}), "kbmcp.rp5.miki.one")
+
+	for _, want := range []string{
+		"reverse_proxy localhost:8070 {",
+		`header_up Authorization "Bearer {env.KBMCP_TOKEN}"`,
+		"forward_auth localhost:6100 {", // still gated
+	} {
+		if !strings.Contains(block, want) {
+			t.Errorf("token block missing %q:\n%s", want, block)
+		}
+	}
+	// The discovery proxy to the auth upstream must NOT carry the token header.
+	if strings.Contains(block, "reverse_proxy localhost:6100 {") {
+		t.Errorf("token header leaked onto the discovery/auth proxy:\n%s", block)
+	}
+}
+
+// token_env overrides the env-var name (e.g. to share one secret across services).
+func TestGenerateTokenEnvOverride(t *testing.T) {
+	cfg := &config.Config{Domain: "rp5.miki.one", CertPath: "/c.pem", KeyPath: "/k.pem"}
+	block := blockFor(Generate(cfg, []scanner.Project{
+		{Name: "kbmcp", Port: 8070, Enabled: true, Token: true, TokenEnv: "GATEWAY_TOKEN"},
+	}), "kbmcp.rp5.miki.one")
+	if !strings.Contains(block, `header_up Authorization "Bearer {env.GATEWAY_TOKEN}"`) {
+		t.Errorf("token_env override not honoured:\n%s", block)
+	}
+}
+
+// A service with a hyphen gets a sanitised default env-var name.
+func TestGenerateTokenNameSanitised(t *testing.T) {
+	cfg := &config.Config{Domain: "rp5.miki.one", CertPath: "/c.pem", KeyPath: "/k.pem"}
+	block := blockFor(Generate(cfg, []scanner.Project{
+		{Name: "volume-auth", Port: 6100, Enabled: true, Token: true},
+	}), "volume-auth.rp5.miki.one")
+	if !strings.Contains(block, `{env.VOLUME_AUTH_TOKEN}`) {
+		t.Errorf("hyphen not sanitised to _:\n%s", block)
+	}
+}
+
+// Without token there is no header_up and the proxy stays a bare line.
+func TestGenerateNoTokenByDefault(t *testing.T) {
+	cfg := &config.Config{Domain: "rp5.miki.one", CertPath: "/c.pem", KeyPath: "/k.pem"}
+	block := blockFor(Generate(cfg, []scanner.Project{{Name: "open", Port: 3000, Enabled: true}}), "open.rp5.miki.one")
+	if strings.Contains(block, "header_up") || strings.Contains(block, "reverse_proxy localhost:3000 {") {
+		t.Errorf("non-token service should have a bare reverse_proxy:\n%s", block)
+	}
+}
+
+// A project with domain: overrides the generated hostname entirely.
+func TestGenerateDomainOverride(t *testing.T) {
+	cfg := &config.Config{Domain: "rp5.miki.one", CertPath: "/c.pem", KeyPath: "/k.pem"}
+	out := Generate(cfg, []scanner.Project{
+		{Name: "volume-auth", Port: 6100, Domain: "volume-auth.miki.one", Enabled: true},
+	})
+	if blockFor(out, "volume-auth.miki.one") == "" {
+		t.Errorf("expected vhost for the domain override:\n%s", out)
+	}
+	if blockFor(out, "volume-auth.rp5.miki.one") != "" {
+		t.Errorf("should not emit the default subdomain when domain is set:\n%s", out)
+	}
+}
+
+// When cert_path/key_path are empty, no tls directive is emitted (Let's Encrypt).
+func TestGenerateNoTLSWithoutCerts(t *testing.T) {
+	cfg := &config.Config{Domain: "miki.one"}
+	out := Generate(cfg, []scanner.Project{
+		{Name: "myapp", Port: 3000, Enabled: true},
+	})
+	block := blockFor(out, "myapp.miki.one")
+	if block == "" {
+		t.Fatalf("expected vhost:\n%s", out)
+	}
+	if strings.Contains(block, "tls ") {
+		t.Errorf("should not emit tls directive without cert paths:\n%s", block)
+	}
+}
+
 // blockFor returns the Caddy site block starting at the given host header.
 func blockFor(caddyfile, host string) string {
 	i := strings.Index(caddyfile, host+" {")

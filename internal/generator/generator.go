@@ -32,9 +32,11 @@ func Generate(cfg *config.Config, projects []scanner.Project) string {
 		// The standard, generated vhost — skipped for import-only projects
 		// (no port), which bring their own site blocks via caddy_import.
 		if p.Port > 0 {
-			subdomain := fmt.Sprintf("%s.%s", p.Name, cfg.Domain)
-			sb.WriteString(fmt.Sprintf("%s {\n", subdomain))
-			sb.WriteString(fmt.Sprintf("\ttls %s %s\n", cfg.CertPath, cfg.KeyPath))
+			host := hostname(cfg, p)
+			sb.WriteString(fmt.Sprintf("%s {\n", host))
+			if cfg.CertPath != "" && cfg.KeyPath != "" {
+				sb.WriteString(fmt.Sprintf("\ttls %s %s\n", cfg.CertPath, cfg.KeyPath))
+			}
 
 			if len(p.CORSOrigins) > 0 {
 				// Wrap the CORS preamble + routing in a route{} so ordering is
@@ -89,7 +91,7 @@ func serviceHandlers(cfg *config.Config, p scanner.Project, ind string) string {
 		sb.WriteString(ind + "\t\turi /verify\n")
 		sb.WriteString(ind + "\t\tcopy_headers X-Volume-User X-Volume-Scopes\n")
 		sb.WriteString(ind + "\t}\n")
-		sb.WriteString(fmt.Sprintf(ind+"\treverse_proxy localhost:%d\n", p.Port))
+		sb.WriteString(backendProxy(p, ind+"\t"))
 		sb.WriteString(ind + "}\n")
 		return sb.String()
 	}
@@ -99,8 +101,44 @@ func serviceHandlers(cfg *config.Config, p scanner.Project, ind string) string {
 		// rather than silently serving the service unprotected.
 		sb.WriteString(ind + "# WARNING: auth requested but auth_upstream is unset; service is UNPROTECTED\n")
 	}
-	sb.WriteString(fmt.Sprintf(ind+"reverse_proxy localhost:%d\n", p.Port))
+	sb.WriteString(backendProxy(p, ind))
 	return sb.String()
+}
+
+// backendProxy emits the reverse_proxy to the service's localhost port, adding a
+// Caddy-injected shared bearer when the project set `token`. The token value is
+// referenced from Caddy's environment ({env.<NAME>}) and never embedded here;
+// it replaces the client's Authorization (already consumed by forward_auth) so
+// the backend sees only the gateway token.
+func backendProxy(p scanner.Project, ind string) string {
+	line := fmt.Sprintf("%sreverse_proxy localhost:%d", ind, p.Port)
+	if !p.Token {
+		return line + "\n"
+	}
+	var sb strings.Builder
+	sb.WriteString(line + " {\n")
+	sb.WriteString(ind + "\theader_up Authorization \"Bearer {env." + tokenEnvName(p) + "}\"\n")
+	sb.WriteString(ind + "}\n")
+	return sb.String()
+}
+
+// tokenEnvName is the Caddy env var that holds the shared bearer: TokenEnv if
+// set, else <NAME>_TOKEN with the name upper-cased and non-alphanumerics as '_'
+// (so "volume-auth" → VOLUME_AUTH_TOKEN).
+func tokenEnvName(p scanner.Project) string {
+	if p.TokenEnv != "" {
+		return p.TokenEnv
+	}
+	var b strings.Builder
+	for _, r := range strings.ToUpper(p.Name) {
+		if (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	b.WriteString("_TOKEN")
+	return b.String()
 }
 
 // corsPreamble emits, at the given indent: the response CORS headers (reflecting
@@ -145,6 +183,15 @@ func corsPreamble(p scanner.Project, ind string) string {
 	sb.WriteString(ind + "\trespond 204\n")
 	sb.WriteString(ind + "}\n")
 	return sb.String()
+}
+
+// hostname returns the Caddy site address for a project: the project's own
+// domain override if set, otherwise {name}.{global_domain}.
+func hostname(cfg *config.Config, p scanner.Project) string {
+	if p.Domain != "" {
+		return p.Domain
+	}
+	return fmt.Sprintf("%s.%s", p.Name, cfg.Domain)
 }
 
 func quote(s string) string { return "\"" + s + "\"" }

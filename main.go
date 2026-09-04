@@ -132,7 +132,11 @@ func cmdList() {
 		}
 		// Import-only projects (caddy_import, no port) bring their own hosts, so
 		// there's no generated subdomain or port to show.
-		url := fmt.Sprintf("https://%s.%s", p.Name, cfg.Domain)
+		host := fmt.Sprintf("%s.%s", p.Name, cfg.Domain)
+		if p.Domain != "" {
+			host = p.Domain
+		}
+		url := fmt.Sprintf("https://%s", host)
 		port := fmt.Sprintf("%d", p.Port)
 		if p.Port == 0 && p.CaddyImport != "" {
 			url = "(caddy_import)"

@@ -14,6 +14,13 @@ type Project struct {
 	Path    string
 	Enabled bool
 	Auth    bool
+	// Token, when true, makes Caddy inject a shared bearer to the backend
+	// (`header_up Authorization "Bearer {env.<name>}"`) so the service can verify
+	// the caller is the gateway (defence-in-depth on top of loopback binding).
+	// The value lives in Caddy's environment, never here; TokenEnv overrides the
+	// default env-var name (<NAME>_TOKEN).
+	Token    bool
+	TokenEnv string
 	// CORSOrigins is the allowlist of Origins the browser may make cross-origin
 	// requests from (e.g. the SPA editor's host). Empty means no CORS emitted.
 	// A single "*" allows any origin (fine only because auth is by bearer token,
@@ -22,6 +29,11 @@ type Project struct {
 	// CORSExpose is the set of response headers the browser JS may read
 	// (Access-Control-Expose-Headers), e.g. ETag, WWW-Authenticate.
 	CORSExpose []string
+	// Domain, when set, overrides the generated hostname entirely — the vhost
+	// uses this instead of {name}.{global_domain}. Use it when a project lives
+	// on its own domain (e.g. "volume-auth.miki.one") rather than a subdomain of
+	// the dev-router base domain.
+	Domain string
 	// CaddyImport, when set, is the absolute path to a project-owned raw Caddy
 	// snippet that dev-router imports verbatim (a `caddy_import` in dev.yaml).
 	// It's the escape hatch for projects the structured model can't express:
@@ -45,8 +57,11 @@ type corsConfig struct {
 type serviceConfig struct {
 	Name        string      `yaml:"name"`
 	Port        int         `yaml:"port"`
+	Domain      string      `yaml:"domain"`
 	Enabled     *bool       `yaml:"enabled"`
 	Auth        *bool       `yaml:"auth"`
+	Token       *bool       `yaml:"token"`
+	TokenEnv    string      `yaml:"token_env"`
 	CORS        *corsConfig `yaml:"cors"`
 	CaddyImport string      `yaml:"caddy_import"`
 }
@@ -55,8 +70,11 @@ type devConfig struct {
 	// Single service format
 	Port        int         `yaml:"port"`
 	Name        string      `yaml:"name"`
+	Domain      string      `yaml:"domain"`
 	Enabled     *bool       `yaml:"enabled"`
 	Auth        *bool       `yaml:"auth"`
+	Token       *bool       `yaml:"token"`
+	TokenEnv    string      `yaml:"token_env"`
 	CORS        *corsConfig `yaml:"cors"`
 	CaddyImport string      `yaml:"caddy_import"`
 	// Multi-service format
@@ -123,9 +141,12 @@ func Scan(projectsDir string) (*ScanResult, error) {
 				result.Projects = append(result.Projects, Project{
 					Name:        svc.Name,
 					Port:        svc.Port,
+					Domain:      svc.Domain,
 					Path:        dirPath,
 					Enabled:     enabled,
 					Auth:        svc.Auth != nil && *svc.Auth,
+					Token:       svc.Token != nil && *svc.Token,
+					TokenEnv:    svc.TokenEnv,
 					CORSOrigins: origins,
 					CORSExpose:  expose,
 					CaddyImport: resolveImport(dirPath, svc.CaddyImport),
@@ -149,9 +170,12 @@ func Scan(projectsDir string) (*ScanResult, error) {
 		result.Projects = append(result.Projects, Project{
 			Name:        name,
 			Port:        devCfg.Port,
+			Domain:      devCfg.Domain,
 			Path:        dirPath,
 			Enabled:     enabled,
 			Auth:        devCfg.Auth != nil && *devCfg.Auth,
+			Token:       devCfg.Token != nil && *devCfg.Token,
+			TokenEnv:    devCfg.TokenEnv,
 			CORSOrigins: origins,
 			CORSExpose:  expose,
 			CaddyImport: resolveImport(dirPath, devCfg.CaddyImport),

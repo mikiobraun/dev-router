@@ -3,3 +3,6 @@ dev-router
 
 # Claude Code local settings
 .claude/
+
+# Pending-work log (never committed)
+changes.local
