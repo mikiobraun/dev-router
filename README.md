@@ -149,6 +149,56 @@ dev server, or an auth service that is not running. Note the second case: if
 discovery route. Errors produced by the application itself pass through
 untouched.
 
+## CORS
+
+A service called from a browser page on another origin (a SPA talking to its
+API) needs a `cors` block. dev-router reflects only allowlisted origins, and
+answers the preflight inside the `route` *before* `forward_auth` — otherwise the
+unauthenticated `OPTIONS` gets redirected to login and the real request never
+happens.
+
+```yaml
+name: kbmcp
+port: 8070
+auth: true
+cors:
+  origins: [https://editor.yourdomain.com]   # "*" allows any origin
+  expose: [ETag, WWW-Authenticate]           # response headers JS may read
+  headers: [Authorization, Content-Type, If-Match, If-None-Match]  # optional
+```
+
+generates, inside the vhost's `route`:
+
+```
+@cors_o0 header Origin https://editor.yourdomain.com
+header @cors_o0 {
+	Access-Control-Allow-Origin "https://editor.yourdomain.com"
+	Access-Control-Expose-Headers "ETag, WWW-Authenticate"
+	Vary Origin
+	defer
+}
+@preflight method OPTIONS
+handle @preflight {
+	header Access-Control-Allow-Methods "GET, PUT, POST, DELETE, OPTIONS"
+	header Access-Control-Allow-Headers "Authorization, Content-Type, If-Match, If-None-Match"
+	header Access-Control-Max-Age "600"
+	respond 204
+}
+```
+
+`headers` sets `Access-Control-Allow-Headers` — the request headers the browser
+is allowed to send. It is optional and **replaces** the default list shown above
+(`Authorization, Content-Type, If-Match, If-None-Match`) rather than extending
+it, so include the ones you still need. Set it when a client sends anything else
+(`X-Request-Id`, a custom auth header): a header the preflight doesn't advertise
+is one the browser silently refuses to send, and the failure surfaces in the
+console as "Request header field … is not allowed by
+Access-Control-Allow-Headers" rather than as an error from your service.
+
+`expose` is the mirror image — response headers the page's JS is allowed to
+*read*. `ETag` belongs there for any API doing `If-Match` optimistic concurrency,
+since the client can't send back a validator it was never allowed to see.
+
 ## Rate limiting
 
 Any service can have a `rate_limit` block, which emits a

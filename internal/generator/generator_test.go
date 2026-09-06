@@ -303,6 +303,37 @@ func TestGenerateRateLimitIncompleteSkipped(t *testing.T) {
 	}
 }
 
+// Without cors.headers, the preflight advertises the built-in default list —
+// which has to carry the conditional-request headers, or a browser client can't
+// do optimistic-concurrency or create-only writes.
+func TestGenerateCORSHeadersDefault(t *testing.T) {
+	cfg := &config.Config{Domain: "miki.one"}
+	block := blockFor(Generate(cfg, []scanner.Project{{
+		Name: "kb", Port: 8070, Enabled: true,
+		CORSOrigins: []string{"https://editor.miki.one"},
+	}}), "kb.miki.one")
+	if !strings.Contains(block, `Access-Control-Allow-Headers "Authorization, Content-Type, If-Match, If-None-Match"`) {
+		t.Errorf("default allow-headers missing:\n%s", block)
+	}
+}
+
+// cors.headers replaces the default list outright, so a service can advertise
+// exactly what its clients send.
+func TestGenerateCORSHeadersOverride(t *testing.T) {
+	cfg := &config.Config{Domain: "miki.one"}
+	block := blockFor(Generate(cfg, []scanner.Project{{
+		Name: "api", Port: 9000, Enabled: true,
+		CORSOrigins: []string{"*"},
+		CORSHeaders: []string{"Authorization", "X-Request-Id"},
+	}}), "api.miki.one")
+	if !strings.Contains(block, `Access-Control-Allow-Headers "Authorization, X-Request-Id"`) {
+		t.Errorf("overridden allow-headers missing:\n%s", block)
+	}
+	if strings.Contains(block, "If-Match") {
+		t.Errorf("override should replace the default list, not extend it:\n%s", block)
+	}
+}
+
 // blockFor returns the Caddy site block starting at the given host header.
 func blockFor(caddyfile, host string) string {
 	i := strings.Index(caddyfile, host+" {")

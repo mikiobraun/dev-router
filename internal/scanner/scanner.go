@@ -30,6 +30,12 @@ type Project struct {
 	// CORSExpose is the set of response headers the browser JS may read
 	// (Access-Control-Expose-Headers), e.g. ETag, WWW-Authenticate.
 	CORSExpose []string
+	// CORSHeaders is the set of request headers the browser may send
+	// (Access-Control-Allow-Headers). Empty means the generator's default list,
+	// which covers Authorization, Content-Type and the conditional-request
+	// headers; set it when a service needs something else, since a header the
+	// preflight doesn't advertise is one the browser refuses to send.
+	CORSHeaders []string
 	// Domain, when set, overrides the generated hostname entirely — the vhost
 	// uses this instead of {name}.{global_domain}. Use it when a project lives
 	// on its own domain (e.g. "volume-auth.miki.one") rather than a subdomain of
@@ -67,6 +73,7 @@ type ScanResult struct {
 type corsConfig struct {
 	Origins []string `yaml:"origins"`
 	Expose  []string `yaml:"expose"`
+	Headers []string `yaml:"headers"`
 }
 
 // rateLimitConfig is the per-service rate_limit declaration in dev.yaml.
@@ -121,11 +128,11 @@ func resolveImport(dirPath, val string) string {
 }
 
 // corsFields safely unpacks a possibly-nil corsConfig.
-func corsFields(c *corsConfig) (origins, expose []string) {
+func corsFields(c *corsConfig) (origins, expose, headers []string) {
 	if c == nil {
-		return nil, nil
+		return nil, nil, nil
 	}
-	return c.Origins, c.Expose
+	return c.Origins, c.Expose, c.Headers
 }
 
 // rateLimit safely converts a possibly-nil rateLimitConfig.
@@ -171,7 +178,7 @@ func Scan(projectsDir, configFile string) (*ScanResult, error) {
 				if svc.Enabled != nil {
 					enabled = *svc.Enabled
 				}
-				origins, expose := corsFields(svc.CORS)
+				origins, expose, headers := corsFields(svc.CORS)
 				result.Projects = append(result.Projects, Project{
 					Name:        svc.Name,
 					Port:        svc.Port,
@@ -184,6 +191,7 @@ func Scan(projectsDir, configFile string) (*ScanResult, error) {
 					TokenEnv:    svc.TokenEnv,
 					CORSOrigins: origins,
 					CORSExpose:  expose,
+					CORSHeaders: headers,
 					CaddyImport: resolveImport(dirPath, svc.CaddyImport),
 					RateLimit:   rateLimit(svc.RateLimit),
 				})
@@ -202,7 +210,7 @@ func Scan(projectsDir, configFile string) (*ScanResult, error) {
 			enabled = *devCfg.Enabled
 		}
 
-		origins, expose := corsFields(devCfg.CORS)
+		origins, expose, headers := corsFields(devCfg.CORS)
 		result.Projects = append(result.Projects, Project{
 			Name:        name,
 			Port:        devCfg.Port,
@@ -215,6 +223,7 @@ func Scan(projectsDir, configFile string) (*ScanResult, error) {
 			TokenEnv:    devCfg.TokenEnv,
 			CORSOrigins: origins,
 			CORSExpose:  expose,
+			CORSHeaders: headers,
 			CaddyImport: resolveImport(dirPath, devCfg.CaddyImport),
 			RateLimit:   rateLimit(devCfg.RateLimit),
 		})

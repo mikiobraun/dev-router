@@ -10,12 +10,17 @@ import (
 	"github.com/mikiobraun/dev-router/internal/scanner"
 )
 
-// Preflight defaults. Broad enough for the REST data plane (GET + future
-// PUT/POST/DELETE, If-Match for optimistic concurrency) and the OAuth fetches
-// (Authorization, JSON bodies).
+// Preflight defaults. Broad enough for the REST data plane (GET +
+// PUT/POST/DELETE, If-Match for optimistic concurrency and If-None-Match for
+// create-only writes) and the OAuth fetches (Authorization, JSON bodies).
+//
+// A service that needs a different request-header set overrides this list with
+// `cors.headers` in its dev.yaml — a header the preflight doesn't advertise is
+// one the browser silently refuses to send, so the list has to be able to grow
+// without a dev-router release.
 const (
 	corsMethods = "GET, PUT, POST, DELETE, OPTIONS"
-	corsHeaders = "Authorization, Content-Type, If-Match"
+	corsHeaders = "Authorization, Content-Type, If-Match, If-None-Match"
 	corsMaxAge  = "600"
 )
 
@@ -192,8 +197,12 @@ func corsPreamble(p scanner.Project, ind string) string {
 	// the deferred header above (the Origin is present on the OPTIONS too).
 	sb.WriteString(ind + "@preflight method OPTIONS\n")
 	sb.WriteString(ind + "handle @preflight {\n")
+	allowHeaders := corsHeaders
+	if len(p.CORSHeaders) > 0 {
+		allowHeaders = strings.Join(p.CORSHeaders, ", ")
+	}
 	sb.WriteString(ind + "\theader Access-Control-Allow-Methods " + quote(corsMethods) + "\n")
-	sb.WriteString(ind + "\theader Access-Control-Allow-Headers " + quote(corsHeaders) + "\n")
+	sb.WriteString(ind + "\theader Access-Control-Allow-Headers " + quote(allowHeaders) + "\n")
 	sb.WriteString(ind + "\theader Access-Control-Max-Age " + quote(corsMaxAge) + "\n")
 	sb.WriteString(ind + "\trespond 204\n")
 	sb.WriteString(ind + "}\n")
